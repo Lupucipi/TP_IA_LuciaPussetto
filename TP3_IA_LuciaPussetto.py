@@ -1,204 +1,226 @@
-import random # Única librería nativa importada para generar ruido y elegir neuronas aleatoriamente
+import random
 
 # =====================================================================
-# 1. DEFINICIÓN DE LOS PATRONES (30x30)
+# 1. ENTRENAMIENTO DE LA MEMORIA (Red de Hopfield 15x15)
 # =====================================================================
-# Representamos la cuadrícula con texto. 
-# '#' será la pieza (valor +1) y '.' será el fondo (valor -1).
 
-# Patrón 1: El Motor (Una base ancha con un bloque superior)
-PATRON_MOTOR = [
-    "..............................",
-    "..............................",
-    "..............................",
-    "..............................",
-    "......##################......",
-    "......##################......",
-    "......##################......",
-    "......##################......",
-    "......##################......",
-    "......##################......",
-    "......##################......",
-    "......##################......",
-    "......##################......",
-    "......##################......",
-    "......##################......",
-    "......##################......",
-    "......##################......",
-    "......##################......",
-    "......##################......",
-    "......##################......",
-    "......##################......",
-    "......##################......",
-    "......##################......",
-    "......##################......",
-    "......##################......",
-    "..............................",
-    "..............................",
-    "..............................",
-    "..............................",
-    ".............................."
+# Morfología escalada a 15x15 (225 píxeles totales)
+FORMA_ANILLO = [
+    ".....#####.....",
+    "...##.....##...",
+    "..#.........#..",
+    ".#...........#.",
+    ".#...........#.",
+    "#.............#",
+    "#.............#",
+    "#.............#", # <-- Este espacio central es el punto "A" (Centro de gravedad)
+    "#.............#",
+    "#.............#",
+    ".#...........#.",
+    ".#...........#.",
+    "..#.........#..",
+    "...##.....##...",
+    ".....#####....."
 ]
 
-# Patrón 2: El Anillo (Un recuadro hueco)
-PATRON_ANILLO = [
-    "..............................",
-    "..............................",
-    "..............................",
-    "..............................",
-    "......##################......",
-    "......##################......",
-    "......##################......",
-    "......###............###......",
-    "......###............###......",
-    "......###............###......",
-    "......###............###......",
-    "......###............###......",
-    "......###............###......",
-    "......###............###......",
-    "......###............###......",
-    "......###............###......",
-    "......###............###......",
-    "......###............###......",
-    "......###............###......",
-    "......###............###......",
-    "......###............###......",
-    "......###............###......",
-    "......##################......",
-    "......##################......",
-    "......##################......",
-    "..............................",
-    "..............................",
-    "..............................",
-    "..............................",
-    ".............................."
+# Fondo vacío adaptado a 15x15
+FONDO_VACIO = [
+    "...............",
+    "...............",
+    "...............",
+    "...............",
+    "...............",
+    "...............",
+    "...............",
+    "...............",
+    "...............",
+    "...............",
+    "...............",
+    "...............",
+    "...............",
+    "...............",
+    "..............."
 ]
-
-# =====================================================================
-# 2. FUNCIONES AUXILIARES DE TRANSFORMACIÓN
-# =====================================================================
 
 def texto_a_bipolar(patron_texto):
-    """Convierte el dibujo de texto a una lista matemática unidimensional de +1 y -1"""
-    vector_bipolar = [] # Lista vacía para guardar los 900 valores
-    for fila in patron_texto: # Recorremos cada línea del dibujo
-        for caracter in fila: # Recorremos cada letra de la línea
-            if caracter == '#': # Si es parte de la pieza...
-                vector_bipolar.append(1) # Agregamos un +1
-            else: # Si es el fondo (punto)...
-                vector_bipolar.append(-1) # Agregamos un -1
-    return vector_bipolar # Devolvemos la lista de 900 elementos
+    return [1 if caracter == '#' else -1 for fila in patron_texto for caracter in fila]
 
-def bipolar_a_texto(vector_bipolar):
-    """Convierte la lista matemática de nuevo a texto 30x30 para imprimirlo en pantalla"""
-    texto = "" # Texto vacío inicial
-    for i in range(900): # Recorremos las 900 neuronas
-        if vector_bipolar[i] == 1: # Si la neurona está activa...
-            texto += "█" # Usamos un bloque sólido para que se vea mejor al imprimir
-        else: # Si está inactiva...
-            texto += " " # Usamos un espacio vacío para el fondo
-        
-        # Cada 30 caracteres, hacemos un salto de línea para formar la cuadrícula
-        if (i + 1) % 30 == 0: 
-            texto += "\n"
-    return texto
-
-def aplicar_ruido(vector_original, porcentaje_ruido):
-    """Toma un patrón perfecto y cambia aleatoriamente algunos píxeles (simula el polvo/sombras)"""
-    vector_ruidoso = list(vector_original) # Hacos una copia para no dañar el original
-    cantidad_a_cambiar = int(900 * porcentaje_ruido) # Calculamos cuántos píxeles vamos a dañar
+def entrenar_hopfield(lista_patrones):
+    """
+    Aplica la Regla de Hebb para crear la "Memoria" de la red (Matriz Sináptica).
     
-    # Elegimos posiciones aleatorias sin repetir
-    indices_a_cambiar = random.sample(range(900), cantidad_a_cambiar) 
+    ========================================================================
+    REPRESENTACIÓN ESTRUCTURAL DE LA MATRIZ DE PESOS (225x225)
+    ========================================================================
+    Cada celda W(i,j) guarda la relación entre la Neurona de Origen (Fila i) 
+    y la Neurona de Destino (Columna j).
     
-    for indice in indices_a_cambiar: # Por cada posición elegida...
-        vector_ruidoso[indice] *= -1 # Invertimos su valor (si era 1 pasa a -1, y viceversa)
-        
-    return vector_ruidoso
-
-# =====================================================================
-# 3. FASE DE ENTRENAMIENTO (REGLA DE HEBB)
-# =====================================================================
-
-def entrenar_red(lista_patrones):
-    """Crea la matriz de pesos de 900x900 grabando los patrones (memoria autoasociativa)"""
-    # Creamos una matriz vacía (lista de listas) de 900 filas y 900 columnas, llena de ceros
-    pesos = [[0 for _ in range(900)] for _ in range(900)]
+           Destino(j):
+           N0      N1      N2      N3      ...     N224 
+         -----------------------------------------------
+    N0  |   0     W0,1    W0,2    W0,3    ...     W0,224 |
+    N1  |  W1,0    0      W1,2    W1,3    ...     W1,224 |
+    N2  |  W2,0   W2,1     0      W2,3    ...     W2,224 |
+    ... |  ...    ...     ...     ...     ...      ...    |
+    N224| W224,0 W224,1  W224,2  W224,3   ...       0    |
+         -----------------------------------------------
+    Origen(i)
     
-    for patron in lista_patrones: # Por cada pieza que queramos memorizar (Motor, Anillo)...
-        for i in range(900): # Recorremos la neurona de origen
-            for j in range(900): # Recorremos la neurona de destino
-                if i != j: # REGLA DE ORO: Las neuronas no se conectan a sí mismas
-                    # Multiplicamos el estado de ambas neuronas y lo sumamos al peso actual
+    * LEYENDA MATEMÁTICA:
+      - Diagonal en 0: Una neurona no se conecta a sí misma (i != j).
+      - Simetría: La matriz es un espejo (W(i,j) == W(j,i)).
+    ========================================================================
+    """
+    pesos = [[0] * 225 for _ in range(225)]
+    for patron in lista_patrones: 
+        for i in range(225):       
+            for j in range(225):   
+                if i != j: 
                     pesos[i][j] += patron[i] * patron[j] 
-                    
-    return pesos # Devolvemos el "cerebro" entrenado
+    return pesos
 
-# =====================================================================
-# 4. FASE DE RECUPERACIÓN (ACTUALIZACIÓN ASÍNCRONA)
-# =====================================================================
-
-def recuperar_patron(vector_entrada, matriz_pesos, iteraciones_max=5):
-    """Toma una imagen dañada y la repara iterando hasta encontrar el atractor"""
-    estado_actual = list(vector_entrada) # Copiamos la entrada dañada para empezar a trabajarla
-    indices_neuronas = list(range(900)) # Lista del 0 al 899
-    
-    # Un ciclo de iteración significa que le dimos la oportunidad a TODAS las neuronas de actualizarse
-    for ciclo in range(iteraciones_max):
-        # Desordenamos la lista para evaluar las neuronas al azar (Actualización Asíncrona)
-        random.shuffle(indices_neuronas) 
-        hubo_cambios = False # Bandera para saber si la red ya se estabilizó
-        
-        for i in indices_neuronas: # Tomamos una neurona al azar
-            suma = 0 # Inicializamos la energía que le llega en 0
-            
-            # Calculamos lo que le dicen todas sus vecinas
-            for j in range(900): 
-                # Multiplicamos el estado de la vecina por el peso del cable que las une
-                suma += matriz_pesos[i][j] * estado_actual[j] 
-                
-            # Función de Activación: Si la suma de las voces es >= 0, se enciende. Si no, se apaga.
+def limpiar_imagen_hopfield(vector_entrada, matriz_pesos):
+    estado = list(vector_entrada) 
+    indices = list(range(225))     
+    for ciclo in range(10):       
+        random.shuffle(indices)   
+        hubo_cambios = False      
+        for i in indices:         
+            suma = sum(matriz_pesos[i][j] * estado[j] for j in range(225))
             nuevo_estado = 1 if suma >= 0 else -1
-            
-            # Verificamos si la neurona tuvo que cambiar de opinión
-            if nuevo_estado != estado_actual[i]:
-                estado_actual[i] = nuevo_estado # Actualizamos su estado
-                hubo_cambios = True # Marcamos que la imagen todavía se está modificando
-                
-        # Si terminamos de revisar las 900 neuronas y NINGUNA cambió, la imagen está perfecta
-        if not hubo_cambios:
-            print(f"\n[INFO] La red convergió (se estabilizó) en el ciclo {ciclo + 1}.")
-            break # Detenemos el proceso para ahorrar tiempo de cómputo
-            
-    return estado_actual
+            if nuevo_estado != estado[i]: 
+                estado[i] = nuevo_estado  
+                hubo_cambios = True       
+        if not hubo_cambios: 
+            break 
+    return estado
 
 # =====================================================================
-# 5. EJECUCIÓN PRINCIPAL DEL PROGRAMA (SIMULACIÓN)
+# 2. ENTORNO FÍSICO CARTESIANO 2D (Lienzo para 100x100 Lugares)
+# =====================================================================
+
+def generar_cinta(lugar_x, lugar_y, aplicar_ruido=False):
+    """
+    Genera el lienzo cartesiano gigante de la cámara.
+    Para soportar centros del 1 al 100 con una pieza de 15x15, 
+    necesitamos un lienzo de 114x114 (7 píxeles de margen en cada extremo).
+    """
+    cinta = [-1] * (114 * 114) 
+    inicio_x = lugar_x - 1
+    inicio_y = lugar_y - 1
+    plantilla = texto_a_bipolar(FORMA_ANILLO) 
+    
+    for i in range(15):
+        for j in range(15):
+            cinta[(inicio_y + i) * 114 + (inicio_x + j)] = plantilla[i * 15 + j]
+            
+    if aplicar_ruido:
+        # 5% de polvo ambiental en toda la cuadrícula (Más de 600 píxeles de ruido)
+        for idx in random.sample(range(114 * 114), int(114 * 114 * 0.05)):
+            cinta[idx] *= -1 
+    return cinta
+
+def imprimir_cinta_con_indicadores(cinta_bipolar, lugar_x=None, lugar_y=None):
+    for i in range(114):
+        fila_texto = ""
+        for j in range(114):
+            fila_texto += "█ " if cinta_bipolar[i * 114 + j] == 1 else ". "
+        if lugar_y is not None and i == (lugar_y + 7): # +7 para alinear el indicador lateral con el centro exacto
+            fila_texto += f"  <-- Eje Vertical (Y) [Arriba/Abajo]: {lugar_y}"
+        print(fila_texto)
+        
+    if lugar_x is not None:
+        indice_centro = lugar_x + 7 # +7 al índice porque el centro de la pieza está en el medio de sus 15 px
+        espacios = " " * (indice_centro * 2) 
+        print(f"{espacios}^")
+        print(f"{espacios}|__ Eje Horizontal (X) [Izquierda/Derecha]: {lugar_x}\n")
+
+# =====================================================================
+# 3. SISTEMA DE CONTROL: ESCANEO CARTESIANO OPTIMIZADO (100x100)
 # =====================================================================
 
 if __name__ == "__main__":
-    print("Iniciando Sistema de Visión Artificial (Red de Hopfield)...")
+    print("======================================================")
+    print(" VISIÓN ARTIFICIAL: DETECCIÓN CARTESIANA 100x100 (TP3)")
+    print("======================================================\n")
     
-    # 1. Transformamos los dibujos a matemáticas
-    vector_motor = texto_a_bipolar(PATRON_MOTOR)
-    vector_anillo = texto_a_bipolar(PATRON_ANILLO)
+    print("[SISTEMA] Entrenando red neuronal de 225 neuronas y 50,625 sinapsis...")
+    patron_ideal = texto_a_bipolar(FORMA_ANILLO)
+    patron_fondo = texto_a_bipolar(FONDO_VACIO) 
     
-    # 2. Entrenamos la red (Creamos la matriz de pesos)
-    print("\n[PROCESO] Entrenando la red con los patrones perfectos...")
-    matriz_sinaptica = entrenar_red([vector_motor, vector_anillo])
-    print("[ÉXITO] Matriz de 900x900 creada y memorizada.")
+    matriz_sinaptica = entrenar_hopfield([patron_ideal, patron_fondo])
     
-    # 3. Simulamos un problema: La cámara capta el Anillo, pero con un 30% de ruido (sombra/polvo)
-    print("\n[PROCESO] Aplicando 30% de ruido al patrón del ANILLO para simular la cámara...")
-    anillo_con_ruido = aplicar_ruido(vector_anillo, 0.30)
+    lugar_real_x = random.randint(1, 100)
+    lugar_real_y = random.randint(1, 100)
+
+    cinta_capturada = generar_cinta(lugar_real_x, lugar_real_y, aplicar_ruido=True)
     
-    print("\n--- IMAGEN CAPTADA POR LA CÁMARA (CON RUIDO) ---")
-    print(bipolar_a_texto(anillo_con_ruido))
+    print("\n>> CÁMARA INDUSTRIAL: PLANO CARTESIANO CON RUIDO <<")
+    imprimir_cinta_con_indicadores(cinta_capturada) 
     
-    # 4. Pasamos la imagen ruidosa por la Red de Hopfield para recuperarla
-    print("\n[PROCESO] Pasando la imagen ruidosa por el filtro de la Red de Hopfield...")
-    imagen_recuperada = recuperar_patron(anillo_con_ruido, matriz_sinaptica, iteraciones_max=10)
+    print("\n[PROCESO] Iniciando escaneo Hopfield 2D Optimizado (Hasta 10,000 cuadrantes)...")
     
-    print("\n--- IMAGEN RECUPERADA POR LA INTELIGENCIA ARTIFICIAL ---")
-    print(bipolar_a_texto(imagen_recuperada))
-    print("\nFin del proceso. Pieza lista para ser ensamblada.")
+    coordenada_encontrada = None
+    similitud_maxima = 0.0 
+    
+    # LA VENTANA DESLIZANTE CON OPTIMIZACIÓN COMPUTACIONAL MASIVA:
+    for eval_y in range(1, 101):
+        
+        eval_x = 1 
+        while eval_x <= 100:
+            
+            recorte_15x15 = [] 
+            inicio_x = eval_x - 1 
+            inicio_y = eval_y - 1 
+            
+            for i in range(15):
+                for j in range(15):
+                    recorte_15x15.append(cinta_capturada[(inicio_y + i) * 114 + (inicio_x + j)])
+                    
+            recorte_limpio = limpiar_imagen_hopfield(recorte_15x15, matriz_sinaptica)
+            
+            # --- VALIDACIÓN 1: ¿Es el Anillo? ---
+            coincidencias_anillo = sum(1 for idx in range(225) if recorte_limpio[idx] == patron_ideal[idx])
+            similitud_anillo = coincidencias_anillo / 225.0 
+            
+            if similitud_anillo >= 0.90:
+                coordenada_encontrada = {"X": eval_x, "Y": eval_y}
+                similitud_maxima = similitud_anillo
+                break # OPTIMIZACIÓN 1: Early Stop. Detenemos la búsqueda en X
+                
+            # --- VALIDACIÓN 2: ¿Es un Fondo Vacío? ---
+            coincidencias_fondo = sum(1 for idx in range(225) if recorte_limpio[idx] == patron_fondo[idx])
+            similitud_fondo = coincidencias_fondo / 225.0
+            
+            if similitud_fondo >= 0.90:
+                # OPTIMIZACIÓN 2: Salto Heurístico. 
+                # Como nuestra pieza mide 15 píxeles de ancho, si vemos vacío puro
+                # podemos saltarnos 10 lugares de forma 100% segura.
+                eval_x += 10
+            else:
+                # Si vemos bordes o ruido que confunde, avanzamos con cautela (1 paso)
+                eval_x += 1
+                
+        if coordenada_encontrada:
+            break
+
+    # =====================================================================
+    # 4. REPORTE VISUAL Y LÓGICO FINAL
+    # =====================================================================
+    
+    if coordenada_encontrada:
+        cinta_limpia = generar_cinta(coordenada_encontrada["X"], coordenada_encontrada["Y"], aplicar_ruido=False)
+        print("\n>> IA: IMAGEN RESTAURADA Y COORDENADAS CARTESIANAS IDENTIFICADAS <<")
+        
+        imprimir_cinta_con_indicadores(cinta_limpia, coordenada_encontrada["X"], coordenada_encontrada["Y"])
+        
+        print("======================================================")
+        print(" REPORTE PARA EL CONTROLADOR DEL ROBOT")
+        print("======================================================")
+        print(f"[ ✓ ] IDENTIFICACIÓN EXITOSA (Confianza: {similitud_maxima*100:.1f}%).")
+        print(f"[ ⌖ ] COORDENADAS DEL CENTRO 'A' (Plano 100x100):")
+        print(f"      -> Eje Horizontal (X) : {coordenada_encontrada['X']}")
+        print(f"      -> Eje Vertical   (Y) : {coordenada_encontrada['Y']}")
+        print(f">> ACCIÓN: Inyectando variables Cartesianas (X={coordenada_encontrada['X']}, Y={coordenada_encontrada['Y']}) al script A*.")
+    else:
+        print("\n[ X ] ERROR: Pieza no identificada. Nivel de ruido extremo.")
