@@ -15,6 +15,31 @@ def detectar_bordes_basico(imagen_gris, umbral_brillo=128):
     bordes[matriz_pixeles > umbral_brillo] = 1 
     return bordes
 
+def detectar_bordes_magnitud(imagen_gris, umbral_gradiente=100):
+    """
+    Filtro avanzado que calcula la magnitud del vector gradiente.
+    Aísla los bordes estructurales fuertes y elimina el ruido interno.
+    """
+    img_arr = np.array(imagen_gris, dtype=float)
+    
+    # Matrices vacías para guardar los cambios
+    diff_x = np.zeros_like(img_arr)
+    diff_y = np.zeros_like(img_arr)
+    
+    # Calculamos la derivada en X (horizontal) y en Y (vertical)
+    diff_x[:, :-1] = np.diff(img_arr, axis=1)
+    diff_y[:-1, :] = np.diff(img_arr, axis=0)
+    
+    # Aplicamos Pitágoras para obtener la fuerza real del borde
+    magnitud = np.sqrt(diff_x**2 + diff_y**2)
+    
+    # Filtramos por el umbral
+    bordes = np.zeros_like(img_arr)
+    bordes[magnitud > umbral_gradiente] = 1
+    
+    return bordes
+
+
 def transformada_hough_rectas(imagen_bordes, resolucion_theta=1):
     """
     Implementación matemática de la Transformada de Hough desde cero.
@@ -53,13 +78,45 @@ def transformada_hough_rectas(imagen_bordes, resolucion_theta=1):
             
     return acumulador, thetas, rhos
 
-def encontrar_picos(acumulador, umbral_votos):
+def encontrar_picos_nms(acumulador, umbral_votos, vecindad=15):
     """
-    Busca en la matriz acumuladora aquellas celdas que tengan 
-    más votos que nuestro umbral mínimo exigido.
+    Busca celdas que superen el umbral, pero aplica Supresión de No Máximos (NMS)
+    para fusionar líneas que estén demasiado cerca unas de otras.
     """
-    picos_rho_idx, picos_theta_idx = np.where(acumulador > umbral_votos)
-    return picos_rho_idx, picos_theta_idx
+    # 1. Encontramos todos los puntos que superan el umbral base
+    picos_rho_brutos, picos_theta_brutos = np.where(acumulador > umbral_votos)
+    
+    # Extraemos cuántos votos tiene cada uno de esos puntos
+    votos = acumulador[picos_rho_brutos, picos_theta_brutos]
+    
+    # 2. Los ordenamos del que tiene más votos al que tiene menos
+    indices_ordenados = np.argsort(votos)[::-1]
+    
+    picos_filtrados_rho = []
+    picos_filtrados_theta = []
+    
+    # 3. Filtramos los picos
+    for idx in indices_ordenados:
+        r = picos_rho_brutos[idx]
+        t = picos_theta_brutos[idx]
+        
+        # Asumimos que este pico es válido hasta demostrar lo contrario
+        es_maximo_local = True
+        
+        # Lo comparamos contra los picos ganadores que ya aceptamos
+        for fr, ft in zip(picos_filtrados_rho, picos_filtrados_theta):
+            # Si las variables matemáticas de la recta están dentro del radio de "vecindad"...
+            if abs(r - fr) < vecindad and abs(t - ft) < vecindad:
+                # Significa que es una línea casi idéntica a una que ya dibujamos. La descartamos.
+                es_maximo_local = False
+                break
+        
+        # Si pasó la prueba de vecindad, es el pico máximo de su zona y lo guardamos
+        if es_maximo_local:
+            picos_filtrados_rho.append(r)
+            picos_filtrados_theta.append(t)
+            
+    return picos_filtrados_rho, picos_filtrados_theta
 
 # =====================================================================
 # EJECUCIÓN PRINCIPAL Y PARÁMETROS DE CALIBRACIÓN
@@ -68,15 +125,15 @@ if __name__ == "__main__":
     
     # --- 1. CONFIGURACIÓN (¡Aquí debes afinar el algoritmo!) ---
     # Reemplaza con la ruta de tu foto real (ej: 'ruta.jpg' o 'cinta.png')
-    RUTA_IMAGEN = 'C:\Users\lucia\Downloads\ias_tren.jpg' 
+    RUTA_IMAGEN = 'C:\\Users\\lucia\\Downloads\\motor2.png'
     
     # Sensibilidad para detectar los bordes (0 a 255). 
     # Si la foto es oscura, bájalo. Si detecta mucho ruido, súbelo.
-    UMBRAL_BORDES = 150 
+    UMBRAL_BORDES = 150
     
     # ¿Cuántos píxeles alineados hacen falta para considerarlo una recta real?
     # Si detecta líneas donde no hay, sube este número.
-    VOTOS_NECESARIOS = 100 
+    VOTOS_NECESARIOS = 150 
     # -------------------------------------------------------------
 
     try:
@@ -87,7 +144,9 @@ if __name__ == "__main__":
         print("[1/3] Imagen cargada y convertida a escala de grises.")
         
         # Detectamos los bordes
-        imagen_bordes = detectar_bordes_basico(imagen_gris, UMBRAL_BORDES)
+        #imagen_bordes = detectar_bordes_basico(imagen_gris, UMBRAL_BORDES)
+        # Asegúrate de usar esta función, NO la que dice "basico"
+        imagen_bordes = detectar_bordes_magnitud(imagen_gris, umbral_gradiente=25)
         print("[2/3] Bordes detectados.")
         
         # Aplicamos nuestra función manual de Hough
@@ -95,7 +154,9 @@ if __name__ == "__main__":
         print("[3/3] Matriz acumuladora generada. Buscando líneas ganadoras...")
         
         # Extraemos los ganadores
-        picos_rho_idx, picos_theta_idx = encontrar_picos(acumulador, VOTOS_NECESARIOS)
+        #picos_rho_idx, picos_theta_idx = encontrar_picos(acumulador, VOTOS_NECESARIOS)
+        # Reemplaza la línea antigua de encontrar picos por esta:
+        picos_rho_idx, picos_theta_idx = encontrar_picos_nms(acumulador, VOTOS_NECESARIOS, vecindad=20)
         print(f"¡Éxito! Se encontraron {len(picos_rho_idx)} líneas que superan los {VOTOS_NECESARIOS} votos.")
 
         # --- DIBUJAMOS LOS RESULTADOS ---
