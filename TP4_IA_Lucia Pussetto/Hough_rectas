@@ -6,41 +6,29 @@ import math
 # =====================================================================
 # 1. FILTRO MATEMÁTICO POR MAGNITUD DE GRADIENTE
 # =====================================================================
-def detectar_bordes_magnitud(imagen_gris, umbral_gradiente=100):
-    """
-    Filtro que calcula la fuerza del cambio de color entre píxeles vecinos.
-    Aísla contornos estructurales fuertes y elimina regiones sólidas o texturas suaves.
-    """
-    # Convierte la imagen a una matriz numérica de tipo flotante para permitir cálculos decimales
+
+def detectar_bordes_simplificado(imagen_gris, umbral_gradiente=100):
+    """Filtro de contornos simplificado: suma de valores absolutos de las diferencias en X e Y"""
     img_arr = np.array(imagen_gris, dtype=float)
-    
-    # Crea una matriz vacía (llena de ceros) del mismo tamaño para guardar las derivadas en el eje X
+    # Calcula las diferencias de intensidad en los ejes X e Y usando np.diff
     diff_x = np.zeros_like(img_arr)
-    # Crea una matriz vacía (llena de ceros) del mismo tamaño para guardar las derivadas en el eje Y
     diff_y = np.zeros_like(img_arr)
-    
-    # Resta cada píxel con su vecino derecho. El resultado se guarda ignorando la última columna
     diff_x[:, :-1] = np.diff(img_arr, axis=1)
-    # Resta cada píxel con su vecino de abajo. El resultado se guarda ignorando la última fila
     diff_y[:-1, :] = np.diff(img_arr, axis=0)
     
-    # Aplica el Teorema de Pitágoras (raíz de la suma de los cuadrados) para hallar la magnitud del vector gradiente
-    magnitud = np.sqrt(diff_x**2 + diff_y**2)
+    # Calcula la magnitud del gradiente como la suma de los valores absolutos de las diferencias
+    magnitud = np.abs(diff_x) + np.abs(diff_y)
     
-    # Inicializa una matriz de ceros que representará el lienzo final en blanco y negro
+    # Crea una imagen binaria donde los píxeles con magnitud mayor al umbral se marcan como bordes (1), y el resto como fondo (0)
     bordes = np.zeros_like(img_arr)
-    # Si la magnitud del cambio supera el límite calibrado, el píxel se enciende pasando a valer 1 (borde activo)
     bordes[magnitud > umbral_gradiente] = 1
-    
-    # Devuelve la matriz binaria de bordes detectados
     return bordes
-
 # =====================================================================
 # 2. HOUGH (MATRIZ ACUMULADORA)
 # =====================================================================
 def transformada_hough_rectas(imagen_bordes, resolucion_theta=1):
     """
-    Implementación que mapea píxeles del espacio cartesiano (x, y)
+    Mapea píxeles del espacio cartesiano (x, y)
     hacia curvas en el espacio paramétrico (rho, theta).
     """
     # Obtiene las dimensiones en píxeles de la imagen bajo análisis
@@ -190,7 +178,7 @@ if __name__ == "__main__":
     RUTA_IMAGEN = r'C:\Users\lucia\Downloads\motor2.png'  # Ruta absoluta del archivo usando 'r' para evitar errores Unicode
     UMBRAL_GRADIENTE = 79  # Tolerancia del filtro de contornos. Captura transiciones con este valor mínimo de fuerza
     CANTIDAD_DIVISIONES = 2  # Estructura de la rejilla. El número 2 divide el lienzo en una matriz de 2x2 (4 cuadrantes)
-    VOTOS_LOCALES = 43  # Cantidad mínima de píxeles alineados requeridos para declarar una recta ganadora en un sector
+    VOTOS_LOCALES = 45  # Cantidad mínima de píxeles alineados requeridos para declarar una recta ganadora en un sector
     # ----------------------------------------------------------
 
     try:
@@ -201,7 +189,8 @@ if __name__ == "__main__":
         print("[1/3] Imagen cargada.")
         
         # Aplica el filtro matemático de derivadas para aislar los bordes geométricos limpios
-        imagen_bordes = detectar_bordes_magnitud(imagen_gris, UMBRAL_GRADIENTE)
+        #imagen_bordes = detectar_bordes_magnitud(imagen_gris, UMBRAL_GRADIENTE)
+        imagen_bordes = detectar_bordes_simplificado(imagen_gris, UMBRAL_GRADIENTE)
         print("[2/3] Contornos aislados matemáticamente.")
         
         # Desencadena el análisis espacial dividido para extraer los parámetros de todas las líneas
@@ -220,12 +209,12 @@ if __name__ == "__main__":
         # Panel 2: Muestra la matriz binaria del filtro por magnitud de gradiente
         axes[1].imshow(imagen_bordes, cmap='gray')
         axes[1].set_title(f'Bordes (Gradiente > {UMBRAL_GRADIENTE})')
-        axes[1].axis('off')  # Oculta las marcas numéricas
+        axes[1].axis('off')  
         
         # Panel 3: Prepara la base para dibujar las rectas sobre la fotografía original
         axes[2].imshow(imagen_original)
         axes[2].set_title(f'Hough Espacial ({CANTIDAD_DIVISIONES}x{CANTIDAD_DIVISIONES} | Votos > {VOTOS_LOCALES})')
-        axes[2].axis('off')  # Oculta las marcas numéricas
+        axes[2].axis('off')  
         
         # Bucle final de trazado: recorre las ecuaciones paramétricas ganadoras para proyectarlas en pantalla
         for rho, theta in lineas_finales:
@@ -234,16 +223,16 @@ if __name__ == "__main__":
             x0 = a * rho       # Calcula el punto de anclaje inicial en el eje X
             y0 = b * rho       # Calcula el punto de anclaje inicial en el eje Y
             
-            # Proyecta el primer extremo de la recta a una distancia lejana (3000 píxeles) en sentido positivo
-            x1 = int(x0 + 3000 * (-b))
-            y1 = int(y0 + 3000 * (a))
+            # Proyecta el primer extremo de la recta a una distancia lejana (300 píxeles) en sentido positivo
+            x1 = int(x0 + 300 * (-b))
+            y1 = int(y0 + 300 * (a))
             
-            # Proyecta el segundo extremo de la recta a una distancia lejana (3000 píxeles) en sentido opuesto
-            x2 = int(x0 - 3000 * (-b))
-            y2 = int(y0 - 3000 * (a))
+            # Proyecta el segundo extremo de la recta a una distancia lejana (300 píxeles) en sentido opuesto
+            x2 = int(x0 - 300 * (-b))
+            y2 = int(y0 - 300 * (a))
             
             # Dibuja físicamente el segmento continuo sobre el tercer panel usando color rojo ('-r') y grosor de 2 píxeles
-            axes[2].plot((x1, x2), (y1, y2), '-r', linewidth=2)
+            axes[2].plot((x1, x2), (y1, y2), '-r', linewidth=1.5)
             
         # Organiza de forma compacta los paneles para evitar que las etiquetas se encimen o pisen entre sí
         plt.tight_layout()
