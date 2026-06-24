@@ -36,11 +36,11 @@ def detectar_bordes_magnitud(imagen_gris, umbral_gradiente=100):
     return bordes
 
 # =====================================================================
-# 2. EL CORAZÓN DE HOUGH (MATRIZ ACUMULADORA)
+# 2. HOUGH (MATRIZ ACUMULADORA)
 # =====================================================================
 def transformada_hough_rectas(imagen_bordes, resolucion_theta=1):
     """
-    Implementación clásica que mapea píxeles del espacio cartesiano (x, y)
+    Implementación que mapea píxeles del espacio cartesiano (x, y)
     hacia curvas en el espacio paramétrico (rho, theta).
     """
     # Obtiene las dimensiones en píxeles de la imagen bajo análisis
