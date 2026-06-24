@@ -1,172 +1,144 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from PIL import Image
-import math
 
-# =====================================================================
-# 1. FILTRO DE CONTORNOS (MAGNITUD DE GRADIENTE)
-# =====================================================================
-def detectar_bordes_magnitud(imagen_gris, umbral_gradiente=100):
-    """
-    Mantiene la misma lógica que usamos para las rectas.
-    Aísla los contornos fuertes del motor eliminando texturas.
-    """
+def detectar_bordes_basico(imagen_gris, umbral=100):
+    """Filtro de contornos (puedes seguir usando el de magnitud de gradiente si prefieres)"""
     img_arr = np.array(imagen_gris, dtype=float)
     diff_x = np.zeros_like(img_arr)
     diff_y = np.zeros_like(img_arr)
-    
     diff_x[:, :-1] = np.diff(img_arr, axis=1)
     diff_y[:-1, :] = np.diff(img_arr, axis=0)
-    
     magnitud = np.sqrt(diff_x**2 + diff_y**2)
     bordes = np.zeros_like(img_arr)
-    bordes[magnitud > umbral_gradiente] = 1
+    bordes[magnitud > umbral] = 1
     return bordes
 
-# =====================================================================
-# 2. ACUMULADOR TRIDIMENSIONAL DE HOUGH PARA CÍRCULOS
-# =====================================================================
-def transformada_hough_circulos(imagen_bordes, r_min, r_max, paso_r=1):
+def hough_circulos_2d_clasico(imagen_bordes, radio_conocido):
     """
-    Genera un espacio paramétrico 3D (Centro X, Centro Y, Radio R).
-    Cada píxel blanco vota por los posibles centros de un círculo.
+    Implementación exacta de la diapositiva:
+    Mapea píxeles del espacio de la imagen a un espacio de parámetros (a, b) 2D,
+    dibujando un círculo de votos de radio 'r' alrededor de cada píxel activo.
     """
     alto, ancho = imagen_bordes.shape
     
-    # Creamos el rango de radios que nos interesa explorar
-    radios = np.arange(r_min, r_max + 1, paso_r)
+    # 1. El espacio de parámetros A(a,b) de la diapositiva (Matriz 2D)
+    acumulador = np.zeros((alto, ancho), dtype=int)
     
-    # Inicializamos el ACUMULADOR 3D (Cubo de memoria)
-    acumulador = np.zeros((alto, ancho, len(radios)), dtype=int)
-    
-    # Precomputamos ángulos de 0 a 360 grados (paso de 2° para acelerar el cálculo)
-    thetas = np.deg2rad(np.arange(0, 360, 2))
+    # 2. Precomputamos los 360 grados del círculo para dibujar los votos rápidamente
+    thetas = np.deg2rad(np.arange(0, 360, 1)) # Ángulos de 0 a 359
     cos_t = np.cos(thetas)
     sin_t = np.sin(thetas)
     
-    # Localizamos los píxeles de borde activos
+    # 3. Buscamos todos los píxeles de borde (los puntos azules de la diapositiva izquierda)
     y_idxs, x_idxs = np.nonzero(imagen_bordes)
     
-    print(f"Calculando votación tridimensional para {len(x_idxs)} píxeles...")
+    print(f"Dibujando {len(x_idxs)} círculos de votación de radio {radio_conocido}...")
     
-    # Recorremos cada píxel de borde
+    # 4. Proceso de votación
     for i in range(len(x_idxs)):
         x = x_idxs[i]
         y = y_idxs[i]
         
-        # Evaluamos para cada radio del rango elegido
-        for r_idx, r in enumerate(radios):
-            # Ecuación paramétrica del círculo: calculamos las coordenadas del posible centro (a, b)
-            a_centros = (x - r * cos_t).astype(int)
-            b_centros = (y - r * sin_t).astype(int)
-            
-            # Filtro de seguridad: nos aseguramos de que el centro calculado caiga dentro de la imagen
-            validos = (a_centros >= 0) & (a_centros < ancho) & (b_centros >= 0) & (b_centros < alto)
-            
-            # Sumamos un voto en el cubo 3D a las posiciones válidas
-            acumulador[b_centros[validos], a_centros[validos], r_idx] += 1
-            
-    return acumulador, radios
+        # Generamos las coordenadas del círculo de votación (los aros azules de la diapositiva derecha)
+        a_votos = np.round(x - radio_conocido * cos_t).astype(int)
+        b_votos = np.round(y - radio_conocido * sin_t).astype(int)
+        
+        # Filtramos para no salirnos de los márgenes de la matriz
+        validos = (a_votos >= 0) & (a_votos < ancho) & (b_votos >= 0) & (b_votos < alto)
+        
+        # Sumamos un voto en todo ese perímetro dibujado
+        acumulador[b_votos[validos], a_votos[validos]] += 1
+        
+    return acumulador
 
-# =====================================================================
-# 3. SUPRESIÓN DE NO MÁXIMOS 3D (Fusión de esferas de votación)
-# =====================================================================
-def encontrar_centros_nms(acumulador, radios, umbral_votos, vecindad_espacio=25, vecindad_radio=10):
-    """
-    Busca los picos en el espacio 3D y fusiona círculos que tengan 
-    centros y radios demasiado similares.
-    """
-    # Encontramos todas las coordenadas del cubo que superen el umbral de votos
-    b_picos, a_picos, r_picos = np.where(acumulador > umbral_votos)
-    votos = acumulador[b_picos, a_picos, r_picos]
-    
-    # Ordenamos de mayor a menor cantidad de votos
+def extraer_centros_2d(acumulador, umbral_votos, radio, vecindad=20):
+    """Extrae los picos del acumulador 2D usando Supresión de No Máximos"""
+    b_picos, a_picos = np.where(acumulador > umbral_votos)
+    votos = acumulador[b_picos, a_picos]
     indices_ordenados = np.argsort(votos)[::-1]
     
-    circulos_confirmados = []
+    centros_filtrados = []
     
     for idx in indices_ordenados:
-        b_centro = b_picos[idx]
-        a_centro = a_picos[idx]
-        r_actual = radios[r_picos[idx]]
+        a = a_picos[idx]
+        b = b_picos[idx]
+        es_maximo = True
         
-        es_maximo_local = True
-        
-        # Comparamos contra los círculos ya aceptados
-        for ca, cb, cr in circulos_confirmados:
-            # Distancia euclídea entre los centros en el plano
-            dist_centros = math.sqrt((a_centro - ca)**2 + (b_centro - cb)**2)
-            # Diferencia absoluta entre sus radios
-            dist_radio = abs(r_actual - cr)
-            
-            # Si el centro está cerca Y el radio es parecido, es el mismo objeto duplicado
-            if dist_centros < vecindad_espacio and dist_radio < vecindad_radio:
-                es_maximo_local = False
+        for ca, cb, cr in centros_filtrados:
+            dist = np.sqrt((a - ca)**2 + (b - cb)**2)
+            if dist < vecindad:
+                es_maximo = False
                 break
                 
-        if es_maximo_local:
-            circulos_confirmados.append((a_centro, b_centro, r_actual))
+        if es_maximo:
+            centros_filtrados.append((a, b, radio))
             
-    return circulos_confirmados
-
+    return centros_filtrados
 # =====================================================================
-# 4. ORQUESTADOR PRINCIPAL
+# EJECUCIÓN PRINCIPAL CON RANGO DINÁMICO
 # =====================================================================
 if __name__ == "__main__":
+    RUTA_IMAGEN = r'C:\Users\lucia\Downloads\motor2.png'
+    #RUTA_IMAGEN = r'C:\Users\lucia\Downloads\monedas.jpg'
     
-    # --- CONFIGURACIÓN DE CALIBRACIÓN ---
-    #RUTA_IMAGEN =  r'C:\Users\lucia\Downloads\monedas.jpg'
-    RUTA_IMAGEN =  r'C:\Users\lucia\Downloads\motor2.png'
-    UMBRAL_GRADIENTE = 85   # Ajuste de tu filtro de contornos
-    
-    # Definimos la ventana de búsqueda de tamaños de cilindros (en píxeles)
+    # --- CONFIGURACIÓN DEL RANGO ---
     RADIO_MINIMO = 15
-    RADIO_MAXIMO = 35
+    RADIO_MAXIMO = 30
+    PASO = 2 # Analizará los radios saltando de 2 en 2 (15, 17, 19...)
     
-    # Exigencia de la urna: cuántos píxeles deben confirmar la curvatura
-    UMBRAL_VOTOS_CIRCULO = 65 
-    # ------------------------------------
+    # Python genera automáticamente la lista basada en tus límites
+    RADIOS_A_BUSCAR = range(RADIO_MINIMO, RADIO_MAXIMO + 1, PASO)
+    
+    UMBRAL_VOTOS = 78    
+    UMBRAL_GRADIENTE = 75 
+    # -------------------------------
 
     try:
         imagen_original = Image.open(RUTA_IMAGEN)
         imagen_gris = imagen_original.convert('L')
-        print("[1/3] Imagen lista.")
         
-        imagen_bordes = detectar_bordes_magnitud(imagen_gris, UMBRAL_GRADIENTE)
-        print("[2/3] Contornos extraídos.")
+        imagen_bordes = detectar_bordes_basico(imagen_gris, UMBRAL_GRADIENTE)
         
-        # Ejecución del cubo de Hough
-        acumulador, radios = transformada_hough_circulos(imagen_bordes, RADIO_MINIMO, RADIO_MAXIMO)
+        todos_los_cilindros_detectados = []
         
-        # Extracción de centros depurados
-        circulos_detectados = encontrar_centros_nms(acumulador, radios, UMBRAL_VOTOS_CIRCULO)
-        print(f"[3/3] ¡Proceso concluído! Se detectaron {len(circulos_detectados)} cilindros.")
+        # --- EL BUCLE AUTOMATIZADO ---
+        for radio_actual in RADIOS_A_BUSCAR:
+            print(f"Escaneando radio: {radio_actual}px...")
+            
+            acumulador_2d = hough_circulos_2d_clasico(imagen_bordes, radio_actual)
+            centros_encontrados = extraer_centros_2d(acumulador_2d, UMBRAL_VOTOS, radio_actual)
+            todos_los_cilindros_detectados.extend(centros_encontrados)
+            
+        print(f"\n¡Búsqueda finalizada! Se detectaron {len(todos_los_cilindros_detectados)} posibles cilindros.")
 
-        # --- DIBUJO DE RESULTADOS ---
-        fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+        # --- DIBUJO ---
+        # Volvemos a configurar 3 paneles horizontales
+        fig, axes = plt.subplots(1, 3, figsize=(18, 5))
         
+        # Panel 1: Imagen Original
         axes[0].imshow(imagen_original)
         axes[0].set_title('Imagen Original')
         axes[0].axis('off')
         
+        # Panel 2: La visión del algoritmo (Filtro en Blanco y Negro)
         axes[1].imshow(imagen_bordes, cmap='gray')
-        axes[1].set_title('Bordes para Círculos')
+        axes[1].set_title(f'Visión del Algoritmo (Bordes > {UMBRAL_GRADIENTE})')
         axes[1].axis('off')
         
+        # Panel 3: Resultado de la Detección
         axes[2].imshow(imagen_original)
-        axes[2].set_title('Cilindros Detectados (Hough 3D)')
+        axes[2].set_title(f'Rango: {RADIO_MINIMO}px a {RADIO_MAXIMO}px')
         axes[2].axis('off')
         
-        # Trazamos los círculos encontrados usando parches de Matplotlib
-        for a, b, r in circulos_detectados:
-            # Creación geométrica del círculo transparente con borde rojo nítido
-            circulo_visual = plt.Circle((a, b), r, color='r', fill=False, linewidth=3)
-            axes[2].add_patch(circulo_visual)
-            # Dibujamos un pequeño punto azul en el centro exacto detectado
-            axes[2].plot(a, b, 'ob', markersize=5)
+        # Dibujamos todos los círculos acumulados sobre el Panel 3 (axes[2])
+        for a, b, r in todos_los_cilindros_detectados:
+            circulo = plt.Circle((a, b), r, color='lime', fill=False, linewidth=3)
+            axes[2].add_patch(circulo)
+            axes[2].plot(a, b, 'o', color='magenta', markersize=5)
             
         plt.tight_layout()
         plt.show()
 
     except FileNotFoundError:
-        print(f"ERROR: No se encontró el archivo en '{RUTA_IMAGEN}'.")
+        print(f"Error cargando: {RUTA_IMAGEN}")
