@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 from PIL import Image
 
 def detectar_bordes_basico(imagen_gris, umbral=100):
-    """Filtro de contornos (puedes seguir usando el de magnitud de gradiente si prefieres)"""
+    """Filtro de contornos básico basado en diferencias de píxeles adyacentes"""
     img_arr = np.array(imagen_gris, dtype=float)
     diff_x = np.zeros_like(img_arr)
     diff_y = np.zeros_like(img_arr)
@@ -16,21 +16,20 @@ def detectar_bordes_basico(imagen_gris, umbral=100):
 
 def hough_circulos_2d_clasico(imagen_bordes, radio_conocido):
     """
-    Implementación exacta de la diapositiva:
     Mapea píxeles del espacio de la imagen a un espacio de parámetros (a, b) 2D,
     dibujando un círculo de votos de radio 'r' alrededor de cada píxel activo.
     """
     alto, ancho = imagen_bordes.shape
     
-    # 1. El espacio de parámetros A(a,b) de la diapositiva (Matriz 2D)
+    # 1. El espacio de parámetros A(a,b) 
     acumulador = np.zeros((alto, ancho), dtype=int)
     
-    # 2. Precomputamos los 360 grados del círculo para dibujar los votos rápidamente
+    # 2. Precomputamos los valores de seno y coseno para todos los ángulos posibles
     thetas = np.deg2rad(np.arange(0, 360, 1)) # Ángulos de 0 a 359
     cos_t = np.cos(thetas)
     sin_t = np.sin(thetas)
     
-    # 3. Buscamos todos los píxeles de borde (los puntos azules de la diapositiva izquierda)
+    # 3. Buscamos todos los píxeles de borde
     y_idxs, x_idxs = np.nonzero(imagen_bordes)
     
     print(f"Dibujando {len(x_idxs)} círculos de votación de radio {radio_conocido}...")
@@ -40,7 +39,7 @@ def hough_circulos_2d_clasico(imagen_bordes, radio_conocido):
         x = x_idxs[i]
         y = y_idxs[i]
         
-        # Generamos las coordenadas del círculo de votación (los aros azules de la diapositiva derecha)
+        # Generamos las coordenadas del círculo de votación
         a_votos = np.round(x - radio_conocido * cos_t).astype(int)
         b_votos = np.round(y - radio_conocido * sin_t).astype(int)
         
@@ -87,7 +86,7 @@ if __name__ == "__main__":
     RADIO_MAXIMO = 30
     PASO = 2 # Analizará los radios saltando de 2 en 2 (15, 17, 19...)
     
-    # Python genera automáticamente la lista basada en tus límites
+    # Genera la lista basada en los límites
     RADIOS_A_BUSCAR = range(RADIO_MINIMO, RADIO_MAXIMO + 1, PASO)
     
     UMBRAL_VOTOS = 78    
@@ -102,7 +101,6 @@ if __name__ == "__main__":
         
         todos_los_cilindros_detectados = []
         
-        # --- EL BUCLE AUTOMATIZADO ---
         for radio_actual in RADIOS_A_BUSCAR:
             print(f"Escaneando radio: {radio_actual}px...")
             
@@ -113,7 +111,7 @@ if __name__ == "__main__":
         print(f"\n¡Búsqueda finalizada! Se detectaron {len(todos_los_cilindros_detectados)} posibles cilindros.")
 
         # --- DIBUJO ---
-        # Volvemos a configurar 3 paneles horizontales
+        # Configuramos 3 paneles horizontales
         fig, axes = plt.subplots(1, 3, figsize=(18, 5))
         
         # Panel 1: Imagen Original
@@ -121,7 +119,7 @@ if __name__ == "__main__":
         axes[0].set_title('Imagen Original')
         axes[0].axis('off')
         
-        # Panel 2: La visión del algoritmo (Filtro en Blanco y Negro)
+        # Panel 2: La visión del algoritmo 
         axes[1].imshow(imagen_bordes, cmap='gray')
         axes[1].set_title(f'Visión del Algoritmo (Bordes > {UMBRAL_GRADIENTE})')
         axes[1].axis('off')
@@ -133,9 +131,9 @@ if __name__ == "__main__":
         
         # Dibujamos todos los círculos acumulados sobre el Panel 3 (axes[2])
         for a, b, r in todos_los_cilindros_detectados:
-            circulo = plt.Circle((a, b), r, color='lime', fill=False, linewidth=3)
+            circulo = plt.Circle((a, b), r, color='red', fill=False, linewidth=1.5)
             axes[2].add_patch(circulo)
-            axes[2].plot(a, b, 'o', color='magenta', markersize=5)
+            axes[2].plot(a, b, 'o', color='green', markersize=5)
             
         plt.tight_layout()
         plt.show()
